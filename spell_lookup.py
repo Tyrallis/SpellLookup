@@ -7,12 +7,10 @@ import html
 import json
 import requests
 import urllib.parse
-import tempfile
-import subprocess
 from datetime import datetime
 
-# ↳ bump this when you cut a new release locally
-__version__ = "1.0.2d"
+# ↳ bump this when you cut a new release
+__version__ = "1.0.2c"
 # ↳ raw URLs for version check and script update
 REMOTE_VERSION_URL = "https://raw.githubusercontent.com/Tyrallis/SpellLookup/main/VERSION.txt"
 RAW_SCRIPT_URL     = "https://raw.githubusercontent.com/Tyrallis/SpellLookup/main/spell_lookup.py"
@@ -20,172 +18,262 @@ RAW_SCRIPT_URL     = "https://raw.githubusercontent.com/Tyrallis/SpellLookup/mai
 try:
     import aiohttp
 except ImportError:
-    print("Error: aiohttp module not found. Please install with `pip install aiohttp requests`.", file=sys.stderr)
+    print("Error: aiohttp module not found. Please install with `pip install aiohttp requests aiohttp`.", file=sys.stderr)
     sys.exit(1)
 
-# ANSI True-Color helper
+# ANSI true-color helper
 def rgb(r, g, b):
     return f"\033[38;2;{r};{g};{b}m"
 
-CYAN, GREEN, YELLOW, RED, RESET = "\033[96m", "\033[92m", "\033[93m", "\033[91m", "\033[0m"
+# Basic ANSI
+CYAN   = "\033[96m"
+GREEN  = "\033[92m"
+YELLOW = "\033[93m"
+RED    = "\033[91m"
+RESET  = "\033[0m"
 
+# Class colors
 CLASS_COLORS = {
-    "Death Knight": rgb(196,30,58), "Demon Hunter": rgb(163,48,201), "Druid": rgb(255,124,10),
-    "Evoker": rgb(51,147,127), "Hunter": rgb(170,211,114), "Mage": rgb(63,199,235),
-    "Monk": rgb(0,255,152), "Paladin": rgb(244,140,186), "Priest": rgb(255,255,255),
-    "Rogue": rgb(255,244,104), "Shaman": rgb(0,112,221), "Warlock": rgb(135,136,238),
-    "Warrior": rgb(198,155,109),
+    "Death Knight": rgb(196,  30,  58),
+    "Demon Hunter": rgb(163,  48, 201),
+    "Druid":        rgb(255, 124,  10),
+    "Evoker":       rgb( 51, 147, 127),
+    "Hunter":       rgb(170, 211, 114),
+    "Mage":         rgb( 63, 199, 235),
+    "Monk":         rgb(  0, 255, 152),
+    "Paladin":      rgb(244, 140, 186),
+    "Priest":       rgb(255, 255, 255),
+    "Rogue":        rgb(255, 244, 104),
+    "Shaman":       rgb(  0, 112, 221),
+    "Warlock":      rgb(135, 136, 238),
+    "Warrior":      rgb(198, 155, 109),
 }
 
+# Wowhead class ID → class name
 CLASS_ID_MAP = {
     "1":"Warrior","2":"Paladin","3":"Hunter","4":"Rogue","5":"Priest",
     "6":"Death Knight","7":"Shaman","8":"Mage","9":"Warlock","10":"Monk",
     "11":"Druid","12":"Demon Hunter","13":"Evoker",
 }
 
-DB2_BASE, FILES_BASE = "https://wago.tools/db2", "https://wago.tools/files"
-SEM, TOTAL_STAGES = asyncio.Semaphore(16), 6
+DB2_BASE     = "https://wago.tools/db2"
+FILES_BASE   = "https://wago.tools/files"
+SEM          = asyncio.Semaphore(16)
+TOTAL_STAGES = 6
 
-# Detect if running as PyInstaller-frozen executable
-is_frozen = getattr(sys, 'frozen', False)
-current_path = sys.executable if is_frozen else os.path.realpath(__file__)
-
-# --- Updater Functionality ---
-def fetch_remote_version():
-    try:
-        r = requests.get(REMOTE_VERSION_URL, timeout=2, headers={"Cache-Control":"no-cache"})
-        r.raise_for_status()
-        return r.text.strip()
-    except:
-        return None
-
-
-def prompt_update():
-    latest = fetch_remote_version()
-    if not latest or latest == __version__:
-        return
-
-    print(f"{RED}Update available!{RESET} You have {__version__}, latest is {latest}.")
-    choice = input("Download and install now? [Y/n] ").strip().lower()
-    if choice not in ("", "y", "yes"):
-        print("Continuing with current version...\n")
-        return
-
-    # Download into temp file
-    suffix = ".exe" if is_frozen else ".py"
-    fd, tmp_path = tempfile.mkstemp(suffix=suffix)
-    os.close(fd)
-    try:
-        r2 = requests.get(RAW_SCRIPT_URL, timeout=10, headers={"Cache-Control":"no-cache"})
-        r2.raise_for_status()
-        with open(tmp_path, 'wb') as f:
-            f.write(r2.content)
-    except Exception as e:
-        print(f"{RED}Failed to download update:{RESET} {e}")
-        os.remove(tmp_path)
-        return
-
-    if is_frozen:
-        # Create batch script to replace the exe after exit
-        batch = f"""
-@echo off
-ping 127.0.0.1 -n 2 >nul
-move /Y \"{tmp_path}\" \"{current_path}\"
-start "" \"{current_path}\"
-"""
-        bat_path = os.path.join(tempfile.gettempdir(), 'updater.bat')
-        with open(bat_path, 'w') as bat:
-            bat.write(batch)
-        subprocess.Popen(["cmd", "/c", bat_path], shell=False)
-        print(f"{GREEN}Updater launched. Exiting current instance...{RESET}")
-        sys.exit(0)
-    else:
-        # Overwrite script and restart
-        try:
-            os.replace(tmp_path, current_path)
-            print(f"{GREEN}Updated script to {latest}! Restarting...{RESET}")
-            os.execv(sys.executable, [sys.executable, current_path] + sys.argv[1:])
-        except Exception as e:
-            print(f"{RED}Error installing update:{RESET} {e}")
-        return
-
-# --- Core CLI Functionality ---
 def clear_screen():
-    os.system('cls' if os.name=='nt' else 'clear')
-
+    os.system('cls' if os.name == 'nt' else 'clear')
 
 def print_banner():
     clear_screen()
     width = 60
     border = CYAN + "+" + "-"*(width-2) + "+" + RESET
+
+    # line 1: byline + version
+    content = f"Made by Tyrallis (v{__version__})"
+    line1 = CYAN + "|" + RESET + content.center(width-2) + CYAN + "|" + RESET
+
+    # line 2: timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line2 = CYAN + "|" + RESET + timestamp.center(width-2) + CYAN + "|" + RESET
+
+    # line 3: update notice
+    try:
+        resp = requests.get(REMOTE_VERSION_URL, timeout=1)
+        resp.raise_for_status()
+        latest = resp.text.strip()
+        upd = f"Update available! {__version__} → {latest}" if latest != __version__ else ""
+    except Exception:
+        upd = ""
+    line3 = CYAN + "|" + RESET + upd.center(width-2) + CYAN + "|" + RESET
+
     print(border)
-    print(CYAN + "|" + RESET + f"Made by Tyrallis (v{__version__})".center(width-2) + CYAN + "|" + RESET)
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(CYAN + "|" + RESET + ts.center(width-2) + CYAN + "|" + RESET)
-    latest = fetch_remote_version()
-    upd = f"Update available! {__version__} → {latest}" if latest and latest != __version__ else ""
-    print(CYAN + "|" + RESET + upd.center(width-2) + CYAN + "|" + RESET)
-    print(border + "\n")
+    print(line1)
+    print(line2)
+    print(line3)
+    print(border)
+    print()
 
+def prompt_update():
+    """
+    If a newer version exists, ask the user to download & install automatically.
+    """
+    try:
+        resp = requests.get(REMOTE_VERSION_URL, timeout=2)
+        resp.raise_for_status()
+        latest = resp.text.strip()
+    except Exception:
+        return
 
-def print_progress(stage, label):
-    w = 30
+    if latest == __version__:
+        return
+
+    print(f"{RED}Update available!{RESET} You have {__version__}, latest is {latest}.")
+    choice = input("Download and install now? [Y/n] ").strip().lower()
+    if choice in ("", "y", "yes"):
+        try:
+            r2 = requests.get(RAW_SCRIPT_URL, timeout=5)
+            r2.raise_for_status()
+        except Exception as e:
+            print(f"{RED}Failed to download update:{RESET} {e}")
+            return
+
+        script_path = os.path.realpath(__file__)
+        try:
+            with open(script_path, "wb") as f:
+                f.write(r2.content)
+        except Exception as e:
+            print(f"{RED}Error writing update to disk:{RESET} {e}")
+            return
+
+        print(f"{GREEN}Updated to {latest}! Please re-run the script.{RESET}")
+        sys.exit(0)
+    else:
+        print("Continuing with current version...\n")
+
+def print_progress(stage: int, label: str):
+    bar_width = 30
     pct = stage / TOTAL_STAGES
-    filled = int(w * pct)
-    bar = GREEN + "█"*filled + RESET + "░"*(w-filled)
+    filled = int(bar_width * pct)
+    empty  = bar_width - filled
+    bar = GREEN + "█"*filled + RESET + "░"*empty
     sys.stdout.write(f"\r{CYAN}{label.ljust(20)}{RESET} {bar} {pct*100:5.1f}%\033[K")
     sys.stdout.flush()
     if stage == TOTAL_STAGES:
-        print()
+        sys.stdout.write("\n")
 
-async def fetch_db2(session, table, filters):
+async def fetch_db2(session: aiohttp.ClientSession, table: str, filters: dict):
     qs = urllib.parse.urlencode(filters)
+    url = f"{DB2_BASE}/{table}?{qs}"
     async with SEM:
-        async with session.get(f"{DB2_BASE}/{table}?{qs}") as resp:
+        async with session.get(url) as resp:
             resp.raise_for_status()
             text = await resp.text()
     m = re.search(r'<div[^>]+data-page=(?:["\'])(.*?)(?:["\'])', text, re.DOTALL)
     if not m:
         return []
-    data = json.loads(html.unescape(m.group(1)))
-    return data.get("props", {}).get("data", {}).get("data", []) or []
+    blob = html.unescape(m.group(1))
+    page = json.loads(blob)
+    return page.get("props", {}).get("data", {}).get("data", []) or []
 
-async def fetch_spell_ids(name_or_id):
-    async with aiohttp.ClientSession() as s:
-        if name_or_id.isdigit():
-            return [int(name_or_id)]
-        rows = await fetch_db2(s, "SpellName", {"filter[Name_lang]": f"exact:{name_or_id}", "page":"1"})
-        return [r["ID"] for r in rows if "ID" in r]
+async def fetch_spell_ids_by_name(session: aiohttp.ClientSession, name: str):
+    rows = await fetch_db2(session, "SpellName", {
+        "filter[Name_lang]": f"exact:{name}",
+        "page": "1"
+    })
+    return [r["ID"] for r in rows if "ID" in r]
 
-async def get_spell_details(session, sid):
-    rows = await fetch_db2(session, "SpellName", {"filter[ID]": f"exact:{sid}", "page":"1"})
-    name = str(sid)
+async def fetch_files(session: aiohttp.ClientSession, search_id: int):
+    url = f"{FILES_BASE}?search={search_id}"
+    async with SEM:
+        async with session.get(url) as resp:
+            resp.raise_for_status()
+            text = await resp.text()
+    m = re.search(r'<div[^>]+data-page=(?:["\'])(.*?)(?:["\'])', text, re.DOTALL)
+    if not m:
+        return []
+    blob = html.unescape(m.group(1))
+    page = json.loads(blob)
+    file_list = page.get("props", {}).get("files", {}).get("data", []) or []
+    return [e.get("filename") for e in file_list if str(e.get("fdid")) == str(search_id)]
+
+def fetch_spell_class_wowhead(spell_id: int) -> str:
+    url = f"https://www.wowhead.com/spell={spell_id}"
+    resp = requests.get(url); resp.raise_for_status()
+    m = re.search(r"\[class=(\d+)\]", resp.text)
+    return CLASS_ID_MAP.get(m.group(1), "Unknown") if m else "Unknown"
+
+def make_slug(name: str) -> str:
+    slug = name.lower()
+    slug = re.sub(r"[^a-z0-9 ]", "", slug)
+    return re.sub(r"\s+", "-", slug.strip())
+
+def print_wowhead_link(spell_id: int, spell_name: str):
+    slug = make_slug(spell_name)
+    url = f"https://www.wowhead.com/spell={spell_id}/{slug}"
+    link = f"\033]8;;{url}\033\\{spell_name}\033]8;;\033\\"
+    print(f"\n{YELLOW}Wowhead:{RESET} {link}")
+
+async def process_spell(session: aiohttp.ClientSession, spell_id: int):
+    rows = await fetch_db2(session, "SpellName", {
+        "filter[ID]": f"exact:{spell_id}",
+        "page": "1"
+    })
+    spell_name = str(spell_id)
     if rows:
-        for k,v in rows[0].items():
-            if "name" in k.lower(): name = v; break
-    r = requests.get(f"https://www.wowhead.com/spell={sid}", headers={"Cache-Control":"no-cache"})
-    m = re.search(r"\[class=(\d+)\]", r.text)
-    cls = CLASS_ID_MAP.get(m.group(1), "Unknown") if m else "Unknown"
-    color = CLASS_COLORS.get(cls, "")
-    return {"id": sid, "name": name, "class": cls, "color": color}
+        for k, v in rows[0].items():
+            if "name" in k.lower():
+                spell_name = v
+                break
 
-async def run_cli(query):
-    async with aiohttp.ClientSession() as s:
-        ids = await fetch_spell_ids(query)
-        if not ids:
-            print(f"{YELLOW}No spells matching '{query}'{RESET}")
-            return
-        for i, sid in enumerate(ids, 1):
-            print(f"{CYAN}Result {i}/{len(ids)}:{RESET}")
-            det = await get_spell_details(s, sid)
-            print(f"- ID: {sid}, Name: {det['name']}, Class: {det['color']}{det['class']}{RESET}")
-            slug = re.sub(r"[^a-z0-9 ]", "", det['name'].lower())
-            slug = re.sub(r"\s+", "-", slug.strip())
-            url = f"https://www.wowhead.com/spell={sid}/{slug}"
-            link = f"\033]8;;{url}\033\\{det['name']}\033]8;;\033\\"
-            print(f"{YELLOW}Link:{RESET} {link}\n")
+    spell_class   = fetch_spell_class_wowhead(spell_id)
+    color         = CLASS_COLORS.get(spell_class, "")
+    colored_class = f"{color}{spell_class}{RESET}"
 
-# --- Interactive Loop ---
+    print_progress(0, spell_name)
+
+    visuals    = await fetch_db2(session, "SpellXSpellVisual", {"filter[SpellID]": f"exact:{spell_id}"})
+    visual_ids = {r.get("SpellVisualID") for r in visuals}
+    print_progress(1, "SpellVisualIDs")
+
+    rows2 = await asyncio.gather(*[
+        fetch_db2(session, "SpellVisualEvent", {"filter[SpellVisualID]": f"exact:{vid}"})
+        for vid in visual_ids
+    ])
+    kit_ids = {r.get("SpellVisualKitID") for sub in rows2 for r in sub}
+    print_progress(2, "SpellVisualKitIDs")
+
+    rows3 = await asyncio.gather(*[
+        fetch_db2(session, "SpellVisualKitEffect", {
+            "filter[ParentSpellVisualKitID]": f"exact:{kid}",
+            "filter[EffectType]": "exact:2"
+        })
+        for kid in kit_ids
+    ])
+    attach_ids = {r.get("Effect") for sub in rows3 for r in sub}
+    print_progress(3, "ModelAttachIDs")
+
+    rows4 = await asyncio.gather(*[
+        fetch_db2(session, "spellvisualkitmodelattach", {"filter[ID]": f"exact:{aid}"})
+        for aid in attach_ids
+    ])
+    name_ids = {r.get("SpellVisualEffectNameID") for sub in rows4 for r in sub}
+    print_progress(4, "EffectNameIDs")
+
+    rows5 = await asyncio.gather(*[
+        fetch_db2(session, "SpellVisualEffectName", {"filter[ID]": f"exact:{nid}"})
+        for nid in name_ids
+    ])
+    data_ids = {r.get("ModelFileDataID") for sub in rows5 for r in sub}
+    print_progress(5, "ModelFileDataIDs")
+
+    filenames = []
+    for did in data_ids:
+        filenames.extend(await fetch_files(session, did))
+    filenames = sorted(set(filenames))
+    if not filenames:
+        return
+
+    print_progress(6, "Filenames")
+    print(f"\n{YELLOW}Found files for {spell_name} [{colored_class}]{RESET}")
+    for f in filenames:
+        print(f"{GREEN}- {f}{RESET}")
+    print_wowhead_link(spell_id, spell_name)
+    print()
+
+async def search_and_process(name_or_id: str):
+    async with aiohttp.ClientSession() as session:
+        if name_or_id.isdigit():
+            await process_spell(session, int(name_or_id))
+        else:
+            ids = await fetch_spell_ids_by_name(session, name_or_id)
+            if not ids:
+                print(f"{YELLOW}No spells found matching \"{name_or_id}\".{RESET}")
+                return
+            print(f"{YELLOW}Found {len(ids)} spells matching \"{name_or_id}\":{RESET}\n")
+            for sid in ids:
+                await process_spell(session, sid)
+
 def interactive_loop():
     while True:
         print_banner()
@@ -193,7 +281,7 @@ def interactive_loop():
         inp = input("Enter a SpellID or exact spell name: ").strip()
         if not inp:
             continue
-        asyncio.run(run_cli(inp))
+        asyncio.run(search_and_process(inp))
         input("Press Enter for new search")
 
 if __name__ == "__main__":
