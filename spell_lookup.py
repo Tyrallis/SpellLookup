@@ -10,7 +10,7 @@ import urllib.parse
 from datetime import datetime
 
 # ↳ bump this when you cut a new release
-__version__ = "1.0.2"
+__version__ = "1.0.2b"
 # ↳ raw URLs for version check and script update
 REMOTE_VERSION_URL = "https://raw.githubusercontent.com/Tyrallis/SpellLookup/main/VERSION.txt"
 RAW_SCRIPT_URL     = "https://raw.githubusercontent.com/Tyrallis/SpellLookup/main/spell_lookup.py"
