@@ -10,7 +10,7 @@ import urllib.parse
 from datetime import datetime
 
 # ↳ bump this when you cut a new release
-__version__ = "1.0.1"
+__version__ = "1.0.1b"
 
 # ↳ point this at a raw text file containing only your latest version string
 REMOTE_VERSION_URL = "https://raw.githubusercontent.com/YourUser/YourRepo/main/VERSION.txt"
